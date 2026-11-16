@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tekla Support Form</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f7f6; }
+        .form-container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+        h2 { text-align: center; color: #00b900; }
+        label { font-weight: bold; margin-top: 12px; display: block; font-size: 14px; }
+        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        /* ปุ่มส่งข้อมูล */
+        .submit-btn { width: 100%; padding: 12px; background-color: #00b900; color: white; border: none; border-radius: 4px; font-size: 16px; margin-top: 20px; cursor: pointer; font-weight: bold; }
+        .submit-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+        
+        /* สไตล์ปุ่ม Add / Delete File */
+        .add-file-btn { display: inline-block; width: 100%; padding: 10px; margin-top: 5px; background-color: #e9ecef; color: #333; border: 2px dashed #adb5bd; border-radius: 4px; font-size: 14px; text-align: center; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .add-file-btn:hover { background-color: #dee2e6; }
+        .remove-btn { background: none; border: none; color: #dc3545; font-size: 14px; cursor: pointer; font-weight: bold; padding: 0 5px; }
+        .remove-btn:hover { color: #a11; }
+        
+        #fileListDisplay { font-size: 13px; color: #444; margin-top: 10px; padding-left: 0; list-style: none; }
+        #fileListDisplay li { display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 6px 10px; border: 1px solid #eee; margin-bottom: 4px; border-radius: 4px; }
+        .file-name-text { flex: 1; word-break: break-all; padding-right: 10px; }
+        
+        #fileSizeInfo { font-size: 13px; margin-top: 5px; line-height: 1.4; }
+        .hint-text { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+<div class="form-container">
+    <h2>ติดต่อ Support</h2>
+    <form id="supportForm">
+        <label>ชื่อบริษัท (Company)</label>
+        <input type="text" id="company" required>
+
+        <label>ชื่อ-นามสกุล ผู้ติดต่อ (Name-Surname)</label>
+        <input type="text" id="name" required>
+
+        <label>อีเมลที่ใช้ Tekla Product (Email)</label>
+        <input type="email" id="email" required>
+
+        <label>เวอร์ชัน Tekla (Version)</label>
+        <select id="version" required>
+            <option value="" disabled selected>เลือกเวอร์ชัน...</option>
+            <option value="Tekla 2026">Tekla 2026</option>
+            <option value="Tekla 2025">Tekla 2025</option>
+            <option value="Tekla 2024">Tekla 2024</option>
+            <option value="Older">เวอร์ชันเก่ากว่า</option>
+        </select>
+
+        <label>รายละเอียดปัญหา (Issue Details)</label>
+        <textarea id="issue" rows="4" placeholder="อธิบายรายละเอียดปัญหาที่พบ..." required></textarea>
+
+        <label>แนบไฟล์รูปภาพ / เอกสาร / Zip (รวมกันไม่เกิน 10MB)</label>
+        <!-- ซ่อน input file เดิมไว้ และใช้ปุ่มกดแทน -->
+        <input type="file" id="fileUpload" accept="image/*, .pdf, .doc, .docx, .zip, .rar" multiple style="display: none;">
+        <button type="button" class="add-file-btn" onclick="document.getElementById('fileUpload').click()">📁 กดเพื่อเลือกไฟล์เพิ่ม (Add Files)</button>
+        
+        <!-- รายการไฟล์ที่เลือก -->
+        <ul id="fileListDisplay"></ul>
+        <div id="fileSizeInfo"></div>
+
+        <label>หรือ วางลิงก์ไฟล์ (กรณีไฟล์ใหญ่เกิน 10MB)</label>
+        <input type="url" id="externalLink" placeholder="วางลิงก์ Google Drive, OneDrive...">
+        <div class="hint-text">💡 หากไฟล์เกิน 10MB กรุณาฝากไว้ที่ Google Drive (เปิดสิทธิ์แชร์ลิงก์) แล้วนำลิงก์มาวางในช่องนี้</div>
+
+        <button type="submit" id="submitBtn" class="submit-btn">ส่งข้อมูล (Submit)</button>
+    </form>
+</div>
+
+<script>
+    const LIFF_ID = "2012561563-OSp0QQl1"; 
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbzpFUCbCQjyK1pmMf0QRqnNkeoduyB0330q4FZyPnMgb1hsuHrufIXfzTmNBnqSzUE-_A/exec";
+    const MAX_FILE_SIZE = 10485760; // 10MB
+    
+    let selectedFiles = []; // อาร์เรย์สำหรับเก็บไฟล์สะสม
+
+    async function initializeLiff() {
+        try {
+            await liff.init({ liffId: LIFF_ID });
+            if (!liff.isLoggedIn()) {
+                liff.login();
+            }
+        } catch (err) {
+            console.error("LIFF Init failed", err);
+        }
+    }
+    initializeLiff();
+
+    // เมื่อมีการเลือกไฟล์ใหม่ ให้นำมาต่อท้าย (Concat) อาร์เรย์เดิม
+    document.getElementById('fileUpload').addEventListener('change', function(e) {
+        const newFiles = Array.from(e.target.files);
+        selectedFiles = selectedFiles.concat(newFiles);
+        renderFileList();
+        this.value = ''; // เคลียร์ค่า input เพื่อให้สามารถเลือกไฟล์ชื่อเดิมซ้ำได้ถ้าต้องการ
+    });
+
+    // ฟังก์ชันวาดรายการไฟล์ และคำนวณขนาด
+    function renderFileList() {
+        const fileListDisplay = document.getElementById('fileListDisplay');
+        const fileInfo = document.getElementById('fileSizeInfo');
+        
+        fileListDisplay.innerHTML = "";
+        let totalSize = 0;
+
+        if (selectedFiles.length === 0) {
+            fileInfo.innerHTML = "";
+            return;
+        }
+
+        selectedFiles.forEach((file, index) => {
+            totalSize += file.size;
+            let fSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            
+            let li = document.createElement('li');
+            li.innerHTML = `
+                <span class="file-name-text">${index + 1}. ${file.name} <span style="color:#888;">(${fSizeMB} MB)</span></span>
+                <button type="button" class="remove-btn" onclick="removeFile(${index})" title="ลบไฟล์นี้">❌ ลบ</button>
+            `;
+            fileListDisplay.appendChild(li);
+        });
+
+        const sizeInMB = (totalSize / (1024 * 1024)).toFixed(2); 
+
+        if (totalSize > MAX_FILE_SIZE) {
+            fileInfo.innerHTML = `❌ ขนาดรวม: <b>${sizeInMB} MB</b> (เกิน 10MB)<br>💡 กรุณาลบไฟล์บางส่วนออก หรือนำไปฝากไว้ที่ Google Drive แทนครับ`;
+            fileInfo.style.color = "red";
+            document.getElementById('submitBtn').disabled = true; // ปิดปุ่มส่งถ้าไฟล์เกิน
+        } else {
+            fileInfo.innerHTML = `✅ รวม ${selectedFiles.length} ไฟล์ | ขนาดรวม: <b>${sizeInMB} MB</b>`;
+            fileInfo.style.color = "#00b900";
+            document.getElementById('submitBtn').disabled = false;
+        }
+    }
+
+    // ฟังก์ชันลบไฟล์เฉพาะเจาะจงออกจากอาร์เรย์
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        renderFileList();
+    }
+
+    function getBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = error => reject(error);
+        });
+    }
+
+    document.getElementById('supportForm').addEventListener('submit', async function(e) {
+        e.preventDefault(); 
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerText = "กำลังส่งข้อมูล... (อาจใช้เวลาสักครู่)";
+
+        try {
+            let filesArray = [];
+
+            if (selectedFiles.length > 0) {
+                let totalSize = 0;
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    totalSize += selectedFiles[i].size;
+                }
+
+                if (totalSize > MAX_FILE_SIZE) {
+                    alert("ไฟล์รวมกันเกิน 10MB กรุณาลบไฟล์บางส่วนออก");
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = "ส่งข้อมูล (Submit)";
+                    return;
+                }
+
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const base64 = await getBase64(selectedFiles[i]);
+                    filesArray.push({
+                        fileName: selectedFiles[i].name,
+                        fileMimeType: selectedFiles[i].type || "application/octet-stream",
+                        fileBase64: base64
+                    });
+                }
+            }
+
+            const payload = {
+                company: document.getElementById('company').value,
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                version: document.getElementById('version').value,
+                issue: document.getElementById('issue').value,
+                externalLink: document.getElementById('externalLink').value.trim(),
+                files: filesArray 
+            };
+
+            const response = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+
+            if (result.status === "success") {
+                alert("ส่งข้อมูลสำเร็จ! ทางทีม Support จะตรวจสอบและตอบกลับทางอีเมลที่ท่านให้ไว้โดยเร็วที่สุด");
+                // เคลียร์ฟอร์มหลังส่งเสร็จ
+                selectedFiles = [];
+                renderFileList();
+                document.getElementById('supportForm').reset();
+                liff.closeWindow(); 
+            } else {
+                alert("เกิดข้อผิดพลาด: " + result.message);
+            }
+            
+            submitBtn.disabled = false;
+            submitBtn.innerText = "ส่งข้อมูล (Submit)";
+
+        } catch (error) {
+            console.error(error);
+            alert("ระบบล้มเหลว: " + error.message);
+            submitBtn.disabled = false;
+            submitBtn.innerText = "ส่งข้อมูล (Submit)";
+        }
+    });
+</script>
+
+</body>
+</html>
